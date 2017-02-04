@@ -5,6 +5,8 @@
 #include <LedControl.h> //led matrix library
 #include <TM1638.h> //led&key
 
+#include "utils.h"
+
 
 #define KEYPAD_ROWS 4
 #define KEYPAD_COLS 4
@@ -13,10 +15,10 @@
 #define MIDI_NOTE_OFF 128 //128 = 10000000 in binary, note off command on channel 0
 #define MIDI_CC 176 //176 = midi cc on channel 0
 
-#define DELAY_CTRL 100
-#define DELAY_DISP 200
+#define DELAY_CTRL 20
+#define DELAY_DISP 100
 #define DELAY_DEBUG 2000
-#define TOLERANCE_POT 5
+#define TOLERANCE_POT 8
 
 #define DEBUG true
 
@@ -58,11 +60,12 @@ LedControl ledmatrix = LedControl(ledmatrix_din_pin, ledmatrix_clk_pin, ledmatri
 
 //pots
 byte pot1_pin = A0;
+int pot1_last;
+Pot pot1 = Pot(pot1_pin);
+
 byte pot2_pin = A1;
-int pot1 = 0;
-int pot1_last = 0;
-int pot2 = 0;
-int pot2_last = 0;
+int pot2_last;
+Pot pot2 = Pot(pot2_pin);
 
 //led
 int led_pin = 13;
@@ -129,18 +132,16 @@ void loop() {
         last_ctrl = now;
 
         //pots
-        pot1 = analogRead(pot1_pin);
-        if (abs(pot1-pot1_last) >= TOLERANCE_POT) {
-            pot1_last = pot1;
-            base_note = analog2midi(pot1);
+        if (abs(pot1.value()-pot1_last) >= TOLERANCE_POT) {
+            pot1_last = pot1.last_value();
+            base_note = pot1.mapped_value(0, 127);
             disp(pad4(base_note), 4);
             ledkey_display[4] = 'B';
         }
 
-        pot2 = analogRead(pot2_pin);
-        if (abs(pot2-pot2_last) >= TOLERANCE_POT) {
-            pot2_last = pot2;
-            disp(pad4(analog2midi(pot2)), 4);
+        if (abs(pot2.value()-pot2_last) >= TOLERANCE_POT) {
+            pot2_last = pot2.last_value();
+            disp(pad4(pot2.mapped_value(0, 127)), 4);
             ledkey_display[4] = 'C';
             //midi_cc(73, analog2midi(pot2));
         }
@@ -245,11 +246,6 @@ void midi_cc(byte cc, byte value) {
     Serial.write(MIDI_CC);
     Serial.write(cc);
     Serial.write(value);
-}
-
-
-int analog2midi(int value) {
-    return (int)round(1.0 * value * 127 / 1024);
 }
 
 String pad4(int number) {
