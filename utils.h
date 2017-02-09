@@ -5,6 +5,8 @@
 #define POT_MAX 1023
 #define POT_AVERAGE 20
 
+#define BUTTON_ON LOW
+
 
 #include <Arduino.h>
 
@@ -37,7 +39,6 @@ class Button {
   protected:
     int pin;
     int last;
-    int on = LOW;
     boolean was_pressed = false;
     unsigned long pressed_since;
   public:

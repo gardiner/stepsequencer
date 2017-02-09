@@ -103,22 +103,15 @@ void setup() {
     pinMode(led_pin, OUTPUT);
 
     //init mode
-    mode = MODE_PADS;
-    disp("PAdS", 0);
-    ledkey_leds = 1;
+    enable_mode(MODE_PADS);
 
-    if (DEBUG) {
-        Serial.begin(9600); //console/debug
-    } else {
-        Serial.begin(31250); //midi
-    }
-
-    delay(500);
-
-    ledmatrix.setRow(0, 0, 1 | 4 | 16 | 64);
-    ledmatrix.setRow(0, 1, 2 | 8 | 32 | 128);
-    ledmatrix.setRow(1, 0, 1 | 4 | 16 | 64);
-    ledmatrix.setRow(1, 1, 2 | 8 | 32 | 128);
+    #ifdef DEBUG
+    //console/debug
+    Serial.begin(9600);
+    #else
+    //midi
+    Serial.begin(31250);
+    #endif
 }
 
 
@@ -126,7 +119,7 @@ void loop() {
     now = millis();
 
     //keypad
-    char key = keypad.getKey();
+    keypad.getKey();
 
     if ((now - last_ctrl) > DELAY_CTRL) {
         last_ctrl = now;
@@ -134,36 +127,24 @@ void loop() {
         //pots
         if (abs(pot1.value()-pot1_last) >= TOLERANCE_POT) {
             pot1_last = pot1.last_value();
-            base_note = pot1.mapped_value(0, 127);
-            disp(pad4(base_note), 4);
-            ledkey_display[4] = 'B';
+            update_pot1(pot1.last_value(), pot1.mapped_value(0, 127));
         }
 
         if (abs(pot2.value()-pot2_last) >= TOLERANCE_POT) {
             pot2_last = pot2.last_value();
-            disp(pad4(pot2.mapped_value(0, 127)), 4);
-            ledkey_display[4] = 'C';
-            //midi_cc(73, analog2midi(pot2));
+            update_pot2(pot2.last_value(), pot2.mapped_value(0, 127));
         }
 
         //ledkey buttons
         ledkey_buttons = ledkey.getButtons();
         if ((ledkey_buttons & 1) == 1) {
-            mode = MODE_PADS;
-            disp("PAdS", 0);
-            ledkey_leds = 1;
+            enable_mode(MODE_PADS);
         } else if ((ledkey_buttons & 2) == 2) {
-            mode = MODE_STEP;
-            disp("StEP", 0);
-            ledkey_leds = 2;
+            enable_mode(MODE_STEP);
         } else if ((ledkey_buttons & 4) == 4) {
-            mode = MODE_KNOB;
-            disp("CtrL", 0);
-            ledkey_leds = 4;
+            enable_mode(MODE_KNOB);
         } else if ((ledkey_buttons & 8) == 8) {
-            mode = MODE_TONE;
-            disp("TOnE", 0);
-            ledkey_leds = 8;
+            enable_mode(MODE_TONE);
         }
     }
 
@@ -183,8 +164,8 @@ void loop() {
         ledkey.setLEDs(ledkey_leds);
     }
 
-    //debug
-    if (DEBUG && ((now - last_debug) > DELAY_DEBUG)) {
+    #ifdef DEBUG
+    if ((now - last_debug) > DELAY_DEBUG) {
         last_debug = now;
 
         Serial.print("Display: ");
@@ -199,54 +180,150 @@ void loop() {
         Serial.print("LEDs: ");
         Serial.println(ledkey_leds);
     }
+    #endif
 }
 
 
 void keypad_event(KeypadEvent key){
     switch (keypad.getState()) {
         case PRESSED:
-            midi_note(MIDI_NOTE_ON, key + base_note, 127);
-            playing_num ++;
-            if (key + base_note < 128) {
-                playing[playing_num] = key + base_note;
-            } else {
-                playing[playing_num] = 127;
-            }
-
+            press_button(key);
             break;
         case RELEASED:
-            midi_note(MIDI_NOTE_OFF, key + base_note, 127);
-            playing_num --;
+            release_button(key);
             break;
         case HOLD:
-            break;
         case IDLE:
             break;
     }
 }
 
 
+void enable_mode(Mode new_mode) {
+    if (playing_num > 0) {
+        return;
+    }
+
+    mode = new_mode;
+
+    switch (new_mode) {
+        case MODE_PADS:
+            disp("PAdS", 0);
+            ledkey_leds = 1;
+            break;
+        case MODE_STEP:
+            disp("StEP", 0);
+            ledkey_leds = 2;
+            break;
+        case MODE_KNOB:
+            disp("CtrL", 0);
+            ledkey_leds = 4;
+            break;
+        case MODE_TONE:
+            disp("TOnE", 0);
+            ledkey_leds = 8;
+            break;
+    }
+}
+
+
+//mode dependent control actions
+
+void update_pot1(int value, int mapped_value) {
+    switch (mode) {
+        case MODE_PADS:
+        case MODE_STEP:
+            base_note = mapped_value;
+            disp(pad4(base_note), 4);
+            ledkey_display[4] = 'B';
+            break;
+        case MODE_KNOB:
+            break;
+        case MODE_TONE:
+            break;
+    }
+}
+
+
+void update_pot2(int value, int mapped_value) {
+    switch (mode) {
+        case MODE_PADS:
+            break;
+        case MODE_STEP:
+            break;
+        case MODE_KNOB:
+            disp(pad4(mapped_value), 4);
+            ledkey_display[4] = 'C';
+            //midi_cc(73, analog2midi(pot2));
+            break;
+        case MODE_TONE:
+            break;
+    }
+}
+
+
+void press_button(KeypadEvent key) {
+    switch (mode) {
+        case MODE_PADS:
+            playing_num++;
+            playing[playing_num] = midi_limit(key + base_note);
+            midi_note(MIDI_NOTE_ON, playing[playing_num], 127);
+            break;
+        case MODE_STEP:
+            break;
+        case MODE_KNOB:
+            break;
+        case MODE_TONE:
+            break;
+    }
+}
+
+
+void release_button(KeypadEvent key) {
+    switch (mode) {
+        case MODE_PADS:
+            midi_note(MIDI_NOTE_OFF, midi_limit(key + base_note), 127);
+            playing_num--;
+            break;
+        case MODE_STEP:
+            break;
+        case MODE_KNOB:
+            break;
+        case MODE_TONE:
+            break;
+    }
+}
+
+
+//display
+
+void disp(String value, byte offset) {
+    for (byte i = 0; i < 4; i++) {
+        ledkey_display[i + offset] = value.charAt(i);
+    }
+}
+
+
+//helpers, utilities
+
+int midi_limit(int value) {
+    return (value > 127) ? 127 : (value < 0 ? 0 : value);
+}
+
 
 void midi_note(int command, int note, int velocity) {
-    if (note > 127) {
-        note = 127;
-    }
-    Serial.write(command); //send note on or note off command 
-    Serial.write(note); //send pitch data
-    Serial.write(velocity); //send velocity data
+    Serial.write(command); //send note on or note off command
+    Serial.write(midi_limit(note)); //send pitch data
+    Serial.write(midi_limit(velocity)); //send velocity data
 }
 
+
 void midi_cc(byte cc, byte value) {
-    if (cc > 127) {
-        cc = 127;
-    }
-    if (value > 127) {
-        value = 127;
-    }
     Serial.write(MIDI_CC);
-    Serial.write(cc);
-    Serial.write(value);
+    Serial.write(midi_limit(cc));
+    Serial.write(midi_limit(value));
 }
+
 
 String pad4(int number) {
     String value = String(number);
@@ -259,8 +336,3 @@ String pad4(int number) {
     return value;
 }
 
-void disp(String value, byte offset) {
-    for (byte i = 0; i < 4; i++) {
-        ledkey_display[i + offset] = value.charAt(i);
-    }
-}

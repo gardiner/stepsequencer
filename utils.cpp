@@ -55,12 +55,12 @@ Button::Button(int pin) {
 
 boolean Button::is_pressed() {
     int current = digitalRead(this->pin);
-    this->was_pressed = (current == this->on) && (this->last == this->on);
+    this->was_pressed = (current == BUTTON_ON) && (this->last == BUTTON_ON);
     this->last = current;
-    if (!this->was_pressed && (this->last == this->on)) {
+    if (!this->was_pressed && (this->last == BUTTON_ON)) {
         this->pressed_since = millis();
     }
-    return (this->last == this->on);
+    return (this->last == BUTTON_ON);
 }
 
 
@@ -70,7 +70,7 @@ boolean Button::is_long_press() {
 
 
 unsigned long Button::press_duration() {
-    if (this->last == this->on) {
+    if (this->last == BUTTON_ON) {
         return millis() - this->pressed_since;
     } else {
         return 0;
