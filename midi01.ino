@@ -18,6 +18,8 @@
 #define DELAY_CTRL 20
 #define DELAY_DISP 100
 #define DELAY_DEBUG 2000
+#define PREVIEW_LENGTH 1000
+
 #define TOLERANCE_POT 8
 
 #define DEBUG true
@@ -75,6 +77,7 @@ unsigned long now = 0;
 unsigned long last_ctrl = 0;
 unsigned long last_disp = 0;
 unsigned long last_debug = 0;
+unsigned long last_preview = 0;
 
 //status
 byte base_note = 0; //base note for pad mode
@@ -82,6 +85,7 @@ byte playing_num = 0; //number of playing notes in pad mode
 byte playing[16]; // currently playing notes in pad mode
 byte channel = 0; //currently selected channel
 byte channel_notes[8]; // selected notes for channels in step mode
+byte preview_note = 0; //currently previewed note
 
 
 void setup() {
@@ -148,6 +152,11 @@ void loop() {
         } else if ((ledkey_buttons & 8) == 8) {
             enable_mode(MODE_TONE);
         }
+    }
+
+    //stop note preview
+    if (last_preview != 0 && now - last_preview > PREVIEW_LENGTH) {
+        stop_preview();
     }
 
     //display
@@ -234,15 +243,20 @@ void update_pot1(int value, int mapped_value) {
     switch (mode) {
         case MODE_PADS:
             base_note = mapped_value;
+            start_preview(base_note);
             disp(midi_display('B', mapped_value), 4);
             break;
         case MODE_STEP:
             channel_notes[channel] = mapped_value;
+            start_preview(channel_notes[channel]);
             disp(midi_display('n', mapped_value), 4);
             break;
         case MODE_KNOB:
             break;
         case MODE_TONE:
+            //mod wheel
+            disp(midi_display('t', mapped_value), 4);
+            //midi_cc(73, analog2midi(mapped_value));
             break;
     }
 }
@@ -255,13 +269,15 @@ void update_pot2(int value, int mapped_value) {
             break;
         case MODE_STEP:
             channel = (int)round(1.0 * mapped_value / 127 * 7); //map midi value to channel
+            start_preview(channel_notes[channel]);
             disp(midi_display('C', channel + 1), 4);
             break;
         case MODE_KNOB:
-            disp(midi_display('K', mapped_value), 4);
-            //midi_cc(73, analog2midi(mapped_value));
             break;
         case MODE_TONE:
+            //pitch bend
+            disp(midi_display('P', mapped_value), 4);
+            //midi_cc(73, analog2midi(mapped_value));
             break;
     }
 }
@@ -300,6 +316,20 @@ void release_button(KeypadEvent key) {
 }
 
 
+//note preview
+
+void start_preview(byte note) {
+    stop_preview();
+    preview_note = note;
+    last_preview = now;
+    midi_note_on(preview_note, 127);
+}
+
+void stop_preview() {
+    last_preview = 0;
+    midi_note_off(preview_note);
+}
+
 //display
 
 void disp(String value, byte offset) {
@@ -318,13 +348,13 @@ int midi_limit(int value) {
 
 
 //plays the specified note at the specified velocity
-void midi_note_on(int note, int velocity) {
+void midi_note_on(int note, int velocity) {
     _midi_note(MIDI_NOTE_ON, note, velocity);
 }
 
 
 //stops playing the specified note
-void midi_note_off(int note) {
+void midi_note_off(int note) {
     _midi_note(MIDI_NOTE_OFF, note, 0);
 }
 
