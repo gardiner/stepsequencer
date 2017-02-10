@@ -89,7 +89,7 @@ byte channel = 0; //currently selected channel
 byte channel_notes[8] = {35, 36, 38, 40, 42, 44, 46, 55}; // selected notes for channels in step mode
 byte preview_note = 0; //currently previewed note
 byte channelline = 0; //currently displayed channel line
-word steps[8] = {0, 34952, 2056, 0, 43690, 0, 0, 0}; //default step pattern
+word steps[8] = {0, 33314, 2056, 0, 43690, 0, 0, 0}; //default step pattern
 byte stepping = 0; //current stepping state - 0 stopped, 1 playing
 byte step = 0; //current stepping position
 byte stepdelay = 125; //current stepping delay
@@ -156,13 +156,23 @@ void loop() {
             enable_mode(MODE_KNOB);
         } else if ((ledkey_buttons & 8) > 0) {
             enable_mode(MODE_TONE);
+        } else if ((ledkey_buttons & 16) > 0) {
+            //rewind
+            hide_stepline(step);
+            step = 0;
+            if (stepping == 1) {
+                last_step = now;
+            }
         } else if ((ledkey_buttons & 32) > 0) {
+            //play
             if (stepping == 0) {
+                play_step(step);
                 show_stepline(step);
                 stepping = 1;
                 last_step = now;
             }
         } else if ((ledkey_buttons & 128) > 0) {
+            //stop
             hide_stepline(step);
             all_stop();
         }
@@ -175,10 +185,10 @@ void loop() {
 
     //stepping
     if (stepping == 1 && now - last_step > stepdelay) {
-        play_step(step);
         hide_stepline(step);
         last_step = now;
         step = (step + 1) % 16;
+        play_step(step);
         show_stepline(step);
     }
 
@@ -441,7 +451,7 @@ void hide_stepline(byte step) {
     for (channel=0; channel<8; channel++) {
         show_step(channel, step);
         //reenable channelline if necessary
-        if (last_channelline != 0) {
+        if (last_channelline != 0 && channel == channelline) {
             ledmatrix.setLed(address(step), row(step), column(channel), true);
         }
     }
@@ -493,8 +503,8 @@ byte column(byte channel) {
 void play_step(byte step) {
     byte channel;
     for (channel=0; channel<8; channel++) {
+        midi_note_off(channel_notes[channel]);
         if (is_step(channel, step)) {
-            midi_note_off(channel_notes[channel]);
             midi_note_on(channel_notes[channel], 127);
         }
     }
@@ -515,7 +525,7 @@ void midi_note_on(int note, int velocity) {
 
 //stops playing the specified note
 void midi_note_off(int note) {
-    _midi_note(MIDI_NOTE_OFF, note, 0);
+    _midi_note(MIDI_NOTE_OFF, note, 127);
 }
 
 
