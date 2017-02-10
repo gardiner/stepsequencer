@@ -16,7 +16,6 @@
 #define MIDI_CC 176 //176 = midi cc on channel 0
 
 #define DELAY_CTRL 20
-#define DELAY_DISP 100
 #define DELAY_DEBUG 2000
 #define PREVIEW_LENGTH 1000
 
@@ -75,7 +74,6 @@ int led_pin = 13;
 //time
 unsigned long now = 0;
 unsigned long last_ctrl = 0;
-unsigned long last_disp = 0;
 unsigned long last_debug = 0;
 unsigned long last_preview = 0;
 unsigned long last_channelline = 0;
@@ -166,20 +164,6 @@ void loop() {
         stop_channelline();
     }
 
-    if ((now - last_disp) > DELAY_DISP) {
-        last_disp = now;
-
-        if (playing_num > 0) {
-            digitalWrite(led_pin, HIGH);
-            disp(midi_display('n', playing[playing_num]), 4);
-        } else {
-            digitalWrite(led_pin, LOW);
-        }
-
-        ledkey.setDisplayToString(ledkey_display);
-        ledkey.setLEDs(ledkey_leds);
-    }
-
 
     #ifdef DEBUG
     if ((now - last_debug) > DELAY_DEBUG) {
@@ -226,19 +210,19 @@ void enable_mode(Mode new_mode) {
     switch (new_mode) {
         case MODE_PADS:
             disp("PAdS", 0);
-            ledkey_leds = 1;
+            leds(1);
             break;
         case MODE_STEP:
             disp("StEP", 0);
-            ledkey_leds = 2;
+            leds(2);
             break;
         case MODE_KNOB:
             disp("CtrL", 0);
-            ledkey_leds = 4;
+            leds(4);
             break;
         case MODE_TONE:
             disp("TOnE", 0);
-            ledkey_leds = 8;
+            leds(8);
             break;
     }
 }
@@ -300,6 +284,8 @@ void press_button(KeypadEvent key) {
             playing_num++;
             playing[playing_num] = midi_limit(key + base_note);
             midi_note_on(playing[playing_num], 127);
+            disp(midi_display('n', playing[playing_num]), 4);
+            digitalWrite(led_pin, HIGH);
             break;
         case MODE_STEP:
             break;
@@ -316,6 +302,12 @@ void release_button(KeypadEvent key) {
         case MODE_PADS:
             midi_note_off(midi_limit(key + base_note));
             playing_num--;
+            if (playing_num > 0) {
+                disp(midi_display('n', playing[playing_num]), 4);
+            } else {
+                disp("    ", 4);
+                digitalWrite(led_pin, LOW);
+            }
             break;
         case MODE_STEP:
             break;
@@ -352,6 +344,7 @@ void start_channelline(byte channel) {
     ledmatrix.setColumn(1, channelline, 255);
 }
 
+
 void stop_channelline() {
     if (last_channelline != 0) {
         ledmatrix.setColumn(0, channelline, 0);
@@ -365,6 +358,13 @@ void disp(String value, byte offset) {
     for (byte i = 0; i < 4; i++) {
         ledkey_display[i + offset] = value.charAt(i);
     }
+    ledkey.setDisplayToString(ledkey_display);
+}
+
+
+void leds(word value) {
+    ledkey_leds = value;
+    ledkey.setLEDs(ledkey_leds);
 }
 
 
