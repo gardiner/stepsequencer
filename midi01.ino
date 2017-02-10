@@ -21,6 +21,7 @@
 
 #define TOLERANCE_POT 8
 
+//comment the following line to disable debug mode
 #define DEBUG true
 
 
@@ -180,6 +181,17 @@ void loop() {
 
         Serial.print("LEDs: ");
         Serial.println(ledkey_leds);
+
+        Serial.print("base_note: ");
+        Serial.println(base_note);
+        Serial.print("playing_num: ");
+        Serial.println(playing_num);
+        Serial.print("channel: ");
+        Serial.println(channel);
+        Serial.print("preview_note: ");
+        Serial.println(preview_note);
+        Serial.print("channelline: ");
+        Serial.println(channelline);
     }
     #endif
 }
