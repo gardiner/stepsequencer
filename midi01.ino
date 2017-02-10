@@ -11,10 +11,6 @@
 #define KEYPAD_ROWS 4
 #define KEYPAD_COLS 4
 
-#define MIDI_NOTE_ON 144 //144 = 10010000 in binary, note on command on channel 0
-#define MIDI_NOTE_OFF 128 //128 = 10000000 in binary, note off command on channel 0
-#define MIDI_CC 176 //176 = midi cc on channel 0
-
 #define DELAY_CTRL 20
 #define DELAY_DEBUG 2000
 #define PREVIEW_LENGTH 500
@@ -71,7 +67,7 @@ int pot2_last;
 Pot pot2 = Pot(pot2_pin);
 
 //led
-int led_pin = 13;
+byte led_pin = 13;
 
 //time
 unsigned long now = 0;
@@ -92,7 +88,8 @@ byte channelline = 0; //currently displayed channel line
 word steps[8] = {0, 33314, 2056, 0, 43690, 0, 0, 0}; //default step pattern
 byte stepping = 0; //current stepping state - 0 stopped, 1 playing
 byte step = 0; //current stepping position
-byte stepdelay = 125; //current stepping delay
+byte stepdelay = 200; //current stepping delay
+boolean note_ons[128] = {false}; //currently sent note_ons
 
 
 void setup() {
@@ -130,7 +127,7 @@ void loop() {
     now = millis();
 
     //keypad
-    keypad.getKey();
+    keypad.getKeys();
 
     if ((now - last_ctrl) > DELAY_CTRL) {
         last_ctrl = now;
@@ -148,7 +145,7 @@ void loop() {
 
         //ledkey buttons
         ledkey_buttons = ledkey.getButtons();
-        if ((ledkey_buttons & 1) == 1) {
+        if ((ledkey_buttons & 1) > 0) {
             enable_mode(MODE_PADS);
         } else if ((ledkey_buttons & 2) > 0) {
             enable_mode(MODE_STEP);
@@ -203,7 +200,7 @@ void loop() {
         last_debug = now;
 
         Serial.print("Display: ");
-        for (int c = 0; c < 8; c++) {
+        for (byte c = 0; c < 8; c++) {
             Serial.print(ledkey_display[c]);
         }
         Serial.println();
@@ -503,8 +500,8 @@ byte column(byte channel) {
 void play_step(byte step) {
     byte channel;
     for (channel=0; channel<8; channel++) {
-        midi_note_off(channel_notes[channel]);
         if (is_step(channel, step)) {
+            midi_note_off(channel_notes[channel]);
             midi_note_on(channel_notes[channel], 127);
         }
     }
@@ -512,20 +509,24 @@ void play_step(byte step) {
 
 
 //limits the value to the range 0 <= value <= 127
-int midi_limit(int value) {
+byte midi_limit(byte value) {
     return (value > 127) ? 127 : (value < 0 ? 0 : value);
 }
 
 
 //plays the specified note at the specified velocity
-void midi_note_on(int note, int velocity) {
-    _midi_note(MIDI_NOTE_ON, note, velocity);
+void midi_note_on(byte note, byte velocity) {
+    note_ons[note] = true;
+    _midi_note(144, note, velocity);
 }
 
 
 //stops playing the specified note
-void midi_note_off(int note) {
-    _midi_note(MIDI_NOTE_OFF, note, 127);
+void midi_note_off(byte note) {
+    if (note_ons[note]) {
+        _midi_note(128, note, 0);
+        note_ons[note] = false;
+    }
 }
 
 
@@ -542,7 +543,7 @@ void all_stop() {
 
 
 //sends the midi command to play or stop a note
-void _midi_note(int command, int note, int velocity) {
+void _midi_note(byte command, byte note, byte velocity) {
     Serial.write(command); //send note on or note off command
     Serial.write(midi_limit(note)); //send pitch data
     Serial.write(midi_limit(velocity)); //send velocity data
@@ -551,14 +552,14 @@ void _midi_note(int command, int note, int velocity) {
 
 //sends the midi command to set a cc value
 void midi_cc(byte cc, byte value) {
-    Serial.write(MIDI_CC);
+    Serial.write(176);
     Serial.write(midi_limit(cc));
     Serial.write(midi_limit(value));
 }
 
 
 //formats a midi value for displaying on a 4 place display
-String midi_display(char label, int number) {
+String midi_display(char label, byte number) {
     String value = String(number);
     if (value.length() > 3) {
         value = value.substring(0, 3);
