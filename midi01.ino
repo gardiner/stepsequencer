@@ -77,9 +77,11 @@ unsigned long last_disp = 0;
 unsigned long last_debug = 0;
 
 //status
-byte base_note = 0;
-byte playing_num = 0;
-byte playing[16];
+byte base_note = 0; //base note for pad mode
+byte playing_num = 0; //number of playing notes in pad mode
+byte playing[16]; // currently playing notes in pad mode
+byte channel = 0; //currently selected channel
+byte channel_notes[8]; // selected notes for channels in step mode
 
 
 void setup() {
@@ -154,8 +156,7 @@ void loop() {
 
         if (playing_num > 0) {
             digitalWrite(led_pin, HIGH);
-            disp(pad4(playing[playing_num]), 4);
-            ledkey_display[4] = 'n';
+            disp(midi_display('n', playing[playing_num]), 4);
         } else {
             digitalWrite(led_pin, LOW);
         }
@@ -232,10 +233,12 @@ void enable_mode(Mode new_mode) {
 void update_pot1(int value, int mapped_value) {
     switch (mode) {
         case MODE_PADS:
-        case MODE_STEP:
             base_note = mapped_value;
-            disp(pad4(base_note), 4);
-            ledkey_display[4] = 'B';
+            disp(midi_display('B', mapped_value), 4);
+            break;
+        case MODE_STEP:
+            channel_notes[channel] = mapped_value;
+            disp(midi_display('n', mapped_value), 4);
             break;
         case MODE_KNOB:
             break;
@@ -248,13 +251,15 @@ void update_pot1(int value, int mapped_value) {
 void update_pot2(int value, int mapped_value) {
     switch (mode) {
         case MODE_PADS:
+            disp(midi_display('V', mapped_value), 4);
             break;
         case MODE_STEP:
+            channel = (int)round(1.0 * mapped_value / 127 * 7); //map midi value to channel
+            disp(midi_display('C', channel + 1), 4);
             break;
         case MODE_KNOB:
-            disp(pad4(mapped_value), 4);
-            ledkey_display[4] = 'C';
-            //midi_cc(73, analog2midi(pot2));
+            disp(midi_display('K', mapped_value), 4);
+            //midi_cc(73, analog2midi(mapped_value));
             break;
         case MODE_TONE:
             break;
@@ -267,7 +272,7 @@ void press_button(KeypadEvent key) {
         case MODE_PADS:
             playing_num++;
             playing[playing_num] = midi_limit(key + base_note);
-            midi_note(MIDI_NOTE_ON, playing[playing_num], 127);
+            midi_note_on(playing[playing_num], 127);
             break;
         case MODE_STEP:
             break;
@@ -282,7 +287,7 @@ void press_button(KeypadEvent key) {
 void release_button(KeypadEvent key) {
     switch (mode) {
         case MODE_PADS:
-            midi_note(MIDI_NOTE_OFF, midi_limit(key + base_note), 127);
+            midi_note_off(midi_limit(key + base_note));
             playing_num--;
             break;
         case MODE_STEP:
@@ -306,18 +311,33 @@ void disp(String value, byte offset) {
 
 //helpers, utilities
 
+//limits the value to the range 0 <= value <= 127
 int midi_limit(int value) {
     return (value > 127) ? 127 : (value < 0 ? 0 : value);
 }
 
 
-void midi_note(int command, int note, int velocity) {
+//plays the specified note at the specified velocity
+void midi_note_on(int note, int velocity) {
+    _midi_note(MIDI_NOTE_ON, note, velocity);
+}
+
+
+//stops playing the specified note
+void midi_note_off(int note) {
+    _midi_note(MIDI_NOTE_OFF, note, 0);
+}
+
+
+//sends the midi command to play or stop a note
+void _midi_note(int command, int note, int velocity) {
     Serial.write(command); //send note on or note off command
     Serial.write(midi_limit(note)); //send pitch data
     Serial.write(midi_limit(velocity)); //send velocity data
 }
 
 
+//sends the midi command to set a cc value
 void midi_cc(byte cc, byte value) {
     Serial.write(MIDI_CC);
     Serial.write(midi_limit(cc));
@@ -325,14 +345,15 @@ void midi_cc(byte cc, byte value) {
 }
 
 
-String pad4(int number) {
+//formats a midi value for displaying on a 4 place display
+String midi_display(char label, int number) {
     String value = String(number);
-    if (value.length() > 4) {
-        value = value.substring(0, 4);
+    if (value.length() > 3) {
+        value = value.substring(0, 3);
     }
-    while (value.length() < 4) {
-        value = " " + value;
+    while (value.length() < 3) {
+        value = ' ' + value;
     }
-    return value;
+    return label + value;
 }
 
