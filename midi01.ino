@@ -23,7 +23,7 @@
 #define TOLERANCE_POT 8
 
 //comment the following line to disable debug mode
-#define DEBUG true
+//#define DEBUG true
 
 
 //mode
@@ -79,15 +79,20 @@ unsigned long last_ctrl = 0;
 unsigned long last_debug = 0;
 unsigned long last_preview = 0;
 unsigned long last_channelline = 0;
+unsigned long last_step = 0;
 
 //status
 byte base_note = 0; //base note for pad mode
 byte playing_num = 0; //number of playing notes in pad mode
 byte playing[16]; // currently playing notes in pad mode
 byte channel = 0; //currently selected channel
-byte channel_notes[8]; // selected notes for channels in step mode
+byte channel_notes[8] = {35, 36, 38, 40, 42, 44, 46, 55}; // selected notes for channels in step mode
 byte preview_note = 0; //currently previewed note
 byte channelline = 0; //currently displayed channel line
+word steps[8] = {0, 34952, 2056, 0, 43690, 0, 0, 0}; //default step pattern
+byte stepping = 0; //current stepping state - 0 stopped, 1 playing
+byte step = 0; //current stepping position
+byte stepdelay = 125; //current stepping delay
 
 
 void setup() {
@@ -97,11 +102,9 @@ void setup() {
     //displays
     ledmatrix.shutdown(0, false);
     ledmatrix.setIntensity(0, 0);
-    ledmatrix.clearDisplay(0);
 
     ledmatrix.shutdown(1, false);
     ledmatrix.setIntensity(1, 0);
-    ledmatrix.clearDisplay(1);
 
     //pots
     pinMode(pot1_pin, INPUT);
@@ -147,12 +150,21 @@ void loop() {
         ledkey_buttons = ledkey.getButtons();
         if ((ledkey_buttons & 1) == 1) {
             enable_mode(MODE_PADS);
-        } else if ((ledkey_buttons & 2) == 2) {
+        } else if ((ledkey_buttons & 2) > 0) {
             enable_mode(MODE_STEP);
-        } else if ((ledkey_buttons & 4) == 4) {
+        } else if ((ledkey_buttons & 4) > 0) {
             enable_mode(MODE_KNOB);
-        } else if ((ledkey_buttons & 8) == 8) {
+        } else if ((ledkey_buttons & 8) > 0) {
             enable_mode(MODE_TONE);
+        } else if ((ledkey_buttons & 32) > 0) {
+            if (stepping == 0) {
+                show_stepline(step);
+                stepping = 1;
+                last_step = now;
+            }
+        } else if ((ledkey_buttons & 128) > 0) {
+            hide_stepline(step);
+            all_stop();
         }
     }
 
@@ -161,9 +173,18 @@ void loop() {
         stop_preview();
     }
 
+    //stepping
+    if (stepping == 1 && now - last_step > stepdelay) {
+        play_step(step);
+        hide_stepline(step);
+        last_step = now;
+        step = (step + 1) % 16;
+        show_stepline(step);
+    }
+
     //display
     if (last_channelline != 0 && now - last_channelline > CHANNELLINE_LENGTH) {
-        stop_channelline();
+        stop_channelline(channel);
     }
 
 
@@ -219,6 +240,8 @@ void enable_mode(Mode new_mode) {
     }
 
     mode = new_mode;
+
+    show_all_steps();
 
     switch (new_mode) {
         case MODE_PADS:
@@ -310,6 +333,12 @@ void press_button(KeypadEvent key) {
             digitalWrite(led_pin, HIGH);
             break;
         case MODE_STEP:
+            midi_note_on(channel_notes[channel], 127);
+            if (is_step(channel, key)) {
+                unset_step(channel, key);
+            } else {
+                set_step(channel, key);
+            }
             break;
         case MODE_KNOB:
             break;
@@ -332,6 +361,7 @@ void release_button(KeypadEvent key) {
             }
             break;
         case MODE_STEP:
+            midi_note_off(channel_notes[channel]);
             break;
         case MODE_KNOB:
             break;
@@ -350,16 +380,36 @@ void start_preview(byte note) {
     midi_note_on(preview_note, 127);
 }
 
+
 void stop_preview() {
     last_preview = 0;
     midi_note_off(preview_note);
 }
 
 
+//step sequencer
+
+void set_step(byte channel, byte step) {
+    steps[channel] |= (1 << (15-step));
+    show_step(channel, step);
+}
+
+
+void unset_step(byte channel, byte step) {
+    steps[channel] &= (65535 - (1 << (15-step)));
+    show_step(channel, step);
+}
+
+
+boolean is_step(byte channel, byte step) {
+    return (steps[channel] & (1 << (15-step))) == 0 ? false : true;
+}
+
+
 //display
 
 void start_channelline(byte channel) {
-    stop_channelline();
+    stop_channelline(channelline);
     last_channelline = now;
     channelline = channel;
     ledmatrix.setColumn(0, 7 - channelline, 255);
@@ -367,11 +417,33 @@ void start_channelline(byte channel) {
 }
 
 
-void stop_channelline() {
+void stop_channelline(byte channel) {
+    byte step;
     if (last_channelline != 0) {
-        ledmatrix.setColumn(0, 7 - channelline, 0);
-        ledmatrix.setColumn(1, 7 - channelline, 0);
         last_channelline = 0;
+        for (step=0; step<16; step++) {
+            show_step(channel, step);
+        }
+    }
+}
+
+
+void show_stepline(byte step) {
+    byte channel;
+    for (channel=0; channel<8; channel++) {
+        ledmatrix.setLed(address(step), row(step), column(channel), true);
+    }
+}
+
+
+void hide_stepline(byte step) {
+    byte channel;
+    for (channel=0; channel<8; channel++) {
+        show_step(channel, step);
+        //reenable channelline if necessary
+        if (last_channelline != 0) {
+            ledmatrix.setLed(address(step), row(step), column(channel), true);
+        }
     }
 }
 
@@ -390,7 +462,44 @@ void leds(word value) {
 }
 
 
+void show_all_steps() {
+    byte channel, step;
+    for (channel=0; channel<8; channel++) {
+        for (step=0; step<16; step++) {
+            show_step(channel, step);
+        }
+    }
+}
+
+void show_step(byte channel, byte step) {
+    ledmatrix.setLed(address(step), row(step), column(channel), is_step(channel, step));
+}
+
+byte address(byte step) {
+    return (step < 8) ? 0 : 1;
+}
+
+byte row(byte step) {
+    return (step < 8) ? 7 - step : 15 - step;
+}
+
+byte column(byte channel) {
+    return 7 - channel;
+}
+
+
 //helpers, utilities
+
+void play_step(byte step) {
+    byte channel;
+    for (channel=0; channel<8; channel++) {
+        if (is_step(channel, step)) {
+            midi_note_off(channel_notes[channel]);
+            midi_note_on(channel_notes[channel], 127);
+        }
+    }
+}
+
 
 //limits the value to the range 0 <= value <= 127
 int midi_limit(int value) {
@@ -407,6 +516,18 @@ void midi_note_on(int note, int velocity) {
 //stops playing the specified note
 void midi_note_off(int note) {
     _midi_note(MIDI_NOTE_OFF, note, 0);
+}
+
+
+//stops all notes
+void all_stop() {
+    byte i;
+
+    stepping = 0;
+
+    for (i=0; i<128; i++) {
+        midi_note_off(i);
+    }
 }
 
 
