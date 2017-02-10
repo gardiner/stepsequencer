@@ -3,7 +3,7 @@
 
 #define POT_MIN 0
 #define POT_MAX 1023
-#define POT_AVERAGE 20
+#define POT_AVERAGE 30
 
 #define BUTTON_ON LOW
 

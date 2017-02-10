@@ -17,7 +17,8 @@
 
 #define DELAY_CTRL 20
 #define DELAY_DEBUG 2000
-#define PREVIEW_LENGTH 1000
+#define PREVIEW_LENGTH 500
+#define CHANNELLINE_LENGTH 2000
 
 #define TOLERANCE_POT 8
 
@@ -110,7 +111,7 @@ void setup() {
     pinMode(led_pin, OUTPUT);
 
     //init mode
-    enable_mode(MODE_PADS);
+    enable_mode(MODE_STEP);
 
     #ifdef DEBUG
     //console/debug
@@ -161,7 +162,7 @@ void loop() {
     }
 
     //display
-    if (last_channelline != 0 && now - last_channelline > PREVIEW_LENGTH) {
+    if (last_channelline != 0 && now - last_channelline > CHANNELLINE_LENGTH) {
         stop_channelline();
     }
 
@@ -246,15 +247,19 @@ void update_pot1(int value, int mapped_value) {
     switch (mode) {
         case MODE_PADS:
             //changes the pad base note
-            base_note = mapped_value;
-            start_preview(base_note);
-            disp(midi_display('B', mapped_value), 4);
+            if (mapped_value != base_note) {
+                base_note = mapped_value;
+                start_preview(base_note);
+                disp(midi_display('B', mapped_value), 4);
+            }
             break;
         case MODE_STEP:
             //changes the note of the current channel
-            channel_notes[channel] = mapped_value;
-            start_preview(channel_notes[channel]);
-            disp(midi_display('n', mapped_value), 4);
+            if (mapped_value != channel_notes[channel]) {
+                channel_notes[channel] = mapped_value;
+                start_preview(channel_notes[channel]);
+                disp(midi_display('n', mapped_value), 4);
+            }
             break;
         case MODE_KNOB:
             break;
@@ -270,14 +275,19 @@ void update_pot1(int value, int mapped_value) {
 void update_pot2(int value, int mapped_value) {
     switch (mode) {
         case MODE_PADS:
-            disp(midi_display('V', mapped_value), 4);
+            disp(midi_display('_', mapped_value), 4);
             break;
         case MODE_STEP:
-            //changes the current channel
-            channel = (int)round(1.0 * mapped_value / 127 * 7); //map midi value to channel
-            start_channelline(channel);
-            start_preview(channel_notes[channel]);
-            disp(midi_display('C', channel + 1), 4);
+            {
+                //changes the current channel
+                byte mapped = (int)round(1.0 * mapped_value / 127 * 7); //map midi value to channel
+                if (mapped != channel) {
+                    channel = mapped;
+                    start_channelline(channel);
+                    start_preview(channel_notes[channel]);
+                    disp(midi_display('C', channel + 1), 4);
+                }
+            }
             break;
         case MODE_KNOB:
             break;
@@ -352,15 +362,15 @@ void start_channelline(byte channel) {
     stop_channelline();
     last_channelline = now;
     channelline = channel;
-    ledmatrix.setColumn(0, channelline, 255);
-    ledmatrix.setColumn(1, channelline, 255);
+    ledmatrix.setColumn(0, 7 - channelline, 255);
+    ledmatrix.setColumn(1, 7 - channelline, 255);
 }
 
 
 void stop_channelline() {
     if (last_channelline != 0) {
-        ledmatrix.setColumn(0, channelline, 0);
-        ledmatrix.setColumn(1, channelline, 0);
+        ledmatrix.setColumn(0, 7 - channelline, 0);
+        ledmatrix.setColumn(1, 7 - channelline, 0);
         last_channelline = 0;
     }
 }
