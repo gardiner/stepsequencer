@@ -1,9 +1,10 @@
 /*
  * Midi pad and step sequencer.
  */
-#include <Keypad.h>
+#include <Keypad.h> //keypad
 #include <LedControl.h> //led matrix library
 #include <TM1638.h> //led&key
+#include <MIDI.h> //MIDI
 
 #include "utils.h"
 
@@ -21,6 +22,8 @@
 //comment the following line to disable debug mode
 //#define DEBUG true
 
+//MIDI
+MIDI_CREATE_DEFAULT_INSTANCE();
 
 //mode
 enum Mode {
@@ -118,13 +121,16 @@ void setup() {
     Serial.begin(9600);
     #else
     //midi
-    Serial.begin(31250);
+    MIDI.begin(1);
     #endif
 }
 
 
 void loop() {
     now = millis();
+
+    //MIDI
+    MIDI.read();
 
     //keypad
     keypad.getKeys();
@@ -517,14 +523,14 @@ byte midi_limit(byte value) {
 //plays the specified note at the specified velocity
 void midi_note_on(byte note, byte velocity) {
     note_ons[note] = true;
-    _midi_note(144, note, velocity);
+    MIDI.sendNoteOn(note, velocity, 1);
 }
 
 
 //stops playing the specified note
 void midi_note_off(byte note) {
     if (note_ons[note]) {
-        _midi_note(128, note, 0);
+        MIDI.sendNoteOn(note, 0, 1);
         note_ons[note] = false;
     }
 }
@@ -539,22 +545,6 @@ void all_stop() {
     for (i=0; i<128; i++) {
         midi_note_off(i);
     }
-}
-
-
-//sends the midi command to play or stop a note
-void _midi_note(byte command, byte note, byte velocity) {
-    Serial.write(command); //send note on or note off command
-    Serial.write(midi_limit(note)); //send pitch data
-    Serial.write(midi_limit(velocity)); //send velocity data
-}
-
-
-//sends the midi command to set a cc value
-void midi_cc(byte cc, byte value) {
-    Serial.write(176);
-    Serial.write(midi_limit(cc));
-    Serial.write(midi_limit(value));
 }
 
 
