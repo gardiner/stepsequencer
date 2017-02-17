@@ -12,12 +12,23 @@
 #define KEYPAD_ROWS 4
 #define KEYPAD_COLS 4
 
+#define BUTTON_PADS 0
+#define BUTTON_STEP 1
+#define BUTTON_KNOB 2
+#define BUTTON_TONE 3
+#define BUTTON_REWIND 4
+#define BUTTON_PLAY 5
+#define BUTTON_RECORD 6
+#define BUTTON_STOP 7
+
 #define DELAY_CTRL 20
 #define DELAY_DEBUG 2000
 #define PREVIEW_LENGTH 500
-#define CHANNELLINE_LENGTH 2000
+#define CHANNELLINE_LENGTH 500
 
 #define TOLERANCE_POT 8
+
+#define NO_NOTE 128
 
 //comment the following line to disable debug mode
 //#define DEBUG true
@@ -82,8 +93,7 @@ unsigned long last_step = 0;
 
 //status
 byte base_note = 0; //base note for pad mode
-byte playing_num = 0; //number of playing notes in pad mode
-byte playing[16]; // currently playing notes in pad mode
+byte playing[16] = {NO_NOTE}; // currently playing notes in pad mode
 byte channel = 0; //currently selected channel
 byte channel_notes[8] = {35, 36, 38, 40, 42, 44, 46, 55}; // selected notes for channels in step mode
 byte preview_note = 0; //currently previewed note
@@ -91,7 +101,7 @@ byte channelline = 0; //currently displayed channel line
 word steps[8] = {0, 33314, 2056, 0, 43690, 0, 0, 0}; //default step pattern
 byte stepping = 0; //current stepping state - 0 stopped, 1 playing
 byte step = 0; //current stepping position
-byte stepdelay = 200; //current stepping delay
+unsigned int stepdelay = 0; //current stepping delay
 boolean note_ons[128] = {false}; //currently sent note_ons
 
 
@@ -116,6 +126,8 @@ void setup() {
     //init mode
     enable_mode(MODE_STEP);
 
+    stepdelay = bpm2stepdelay(120);
+
     #ifdef DEBUG
     //console/debug
     Serial.begin(9600);
@@ -138,7 +150,38 @@ void loop() {
     if ((now - last_ctrl) > DELAY_CTRL) {
         last_ctrl = now;
 
+        //ledkey buttons
+        ledkey_buttons = ledkey.getButtons();
+        if (is_pressed(BUTTON_PADS)) {
+            enable_mode(MODE_PADS);
+        } else if (is_pressed(BUTTON_STEP)) {
+            enable_mode(MODE_STEP);
+        } else if (is_pressed(BUTTON_KNOB)) {
+            enable_mode(MODE_KNOB);
+        } else if (is_pressed(BUTTON_TONE)) {
+            enable_mode(MODE_TONE);
+        } else if (is_pressed(BUTTON_REWIND)) {
+            hide_stepline(step);
+            step = 0;
+            if (stepping == 1) {
+                play_step(step);
+                show_stepline(step);
+                last_step = now;
+            }
+        } else if (is_pressed(BUTTON_PLAY)) {
+            if (stepping == 0) {
+                play_step(step);
+                show_stepline(step);
+                stepping = 1;
+                last_step = now;
+            }
+        } else if (is_pressed(BUTTON_STOP)) {
+            hide_stepline(step);
+            all_stop();
+        }
+
         //pots
+        //checking pots after ledkey buttons because they can be used as modifiers
         if (abs(pot1.value()-pot1_last) >= TOLERANCE_POT) {
             pot1_last = pot1.last_value();
             update_pot1(pot1.last_value(), pot1.mapped_value(0, 127));
@@ -147,37 +190,6 @@ void loop() {
         if (abs(pot2.value()-pot2_last) >= TOLERANCE_POT) {
             pot2_last = pot2.last_value();
             update_pot2(pot2.last_value(), pot2.mapped_value(0, 127));
-        }
-
-        //ledkey buttons
-        ledkey_buttons = ledkey.getButtons();
-        if ((ledkey_buttons & 1) > 0) {
-            enable_mode(MODE_PADS);
-        } else if ((ledkey_buttons & 2) > 0) {
-            enable_mode(MODE_STEP);
-        } else if ((ledkey_buttons & 4) > 0) {
-            enable_mode(MODE_KNOB);
-        } else if ((ledkey_buttons & 8) > 0) {
-            enable_mode(MODE_TONE);
-        } else if ((ledkey_buttons & 16) > 0) {
-            //rewind
-            hide_stepline(step);
-            step = 0;
-            if (stepping == 1) {
-                last_step = now;
-            }
-        } else if ((ledkey_buttons & 32) > 0) {
-            //play
-            if (stepping == 0) {
-                play_step(step);
-                show_stepline(step);
-                stepping = 1;
-                last_step = now;
-            }
-        } else if ((ledkey_buttons & 128) > 0) {
-            //stop
-            hide_stepline(step);
-            all_stop();
         }
     }
 
@@ -219,8 +231,6 @@ void loop() {
 
         Serial.print("base_note: ");
         Serial.println(base_note);
-        Serial.print("playing_num: ");
-        Serial.println(playing_num);
         Serial.print("channel: ");
         Serial.println(channel);
         Serial.print("preview_note: ");
@@ -248,10 +258,6 @@ void keypad_event(KeypadEvent key){
 
 
 void enable_mode(Mode new_mode) {
-    if (playing_num > 0) {
-        return;
-    }
-
     mode = new_mode;
 
     show_all_steps();
@@ -311,17 +317,23 @@ void update_pot1(int value, int mapped_value) {
 void update_pot2(int value, int mapped_value) {
     switch (mode) {
         case MODE_PADS:
-            disp(midi_display('_', mapped_value), 4);
+            //disp(midi_display(' ', mapped_value), 4);
             break;
         case MODE_STEP:
             {
-                //changes the current channel
-                byte mapped = (int)round(1.0 * mapped_value / 127 * 7); //map midi value to channel
-                if (mapped != channel) {
-                    channel = mapped;
-                    start_channelline(channel);
-                    start_preview(channel_notes[channel]);
-                    disp(midi_display('C', channel + 1), 4);
+                if (is_pressed(BUTTON_STEP)) {
+                    int bpm = (value > 300) ? 300 : ((value < 6) ? 6 : value);
+                    stepdelay = bpm2stepdelay(bpm);
+                    disp(midi_display('S', bpm), 4);
+                } else {
+                    //changes the current channel
+                    byte mapped = (int)round(1.0 * mapped_value / 127 * 7); //map midi value to channel
+                    if (mapped != channel) {
+                        channel = mapped;
+                        start_channelline(channel);
+                        start_preview(channel_notes[channel]);
+                        disp(midi_display('C', channel + 1), 4);
+                    }
                 }
             }
             break;
@@ -339,11 +351,8 @@ void update_pot2(int value, int mapped_value) {
 void press_button(KeypadEvent key) {
     switch (mode) {
         case MODE_PADS:
-            playing_num++;
-            playing[playing_num] = midi_limit(key + base_note);
-            midi_note_on(playing[playing_num], 127);
-            disp(midi_display('n', playing[playing_num]), 4);
-            digitalWrite(led_pin, HIGH);
+            stop_note(key);
+            play_note(key);
             break;
         case MODE_STEP:
             midi_note_on(channel_notes[channel], 127);
@@ -362,16 +371,11 @@ void press_button(KeypadEvent key) {
 
 
 void release_button(KeypadEvent key) {
+    //stopping to play a note should happen no matter which mode we're in
+    stop_note(key);
+
     switch (mode) {
         case MODE_PADS:
-            midi_note_off(midi_limit(key + base_note));
-            playing_num--;
-            if (playing_num > 0) {
-                disp(midi_display('n', playing[playing_num]), 4);
-            } else {
-                disp("    ", 4);
-                digitalWrite(led_pin, LOW);
-            }
             break;
         case MODE_STEP:
             midi_note_off(channel_notes[channel]);
@@ -397,6 +401,27 @@ void start_preview(byte note) {
 void stop_preview() {
     last_preview = 0;
     midi_note_off(preview_note);
+}
+
+
+//pad mode
+
+void play_note(char key) {
+    byte code = (byte)key;
+    playing[code] = midi_limit(key + base_note);
+    midi_note_on(playing[code], 127);
+    disp(midi_display('n', playing[code]), 4);
+    digitalWrite(led_pin, HIGH);
+}
+
+
+void stop_note(char key) {
+    byte code = (byte)key;
+    if (playing[code] != NO_NOTE) {
+        midi_note_off(playing[code]);
+        playing[code] = NO_NOTE;
+        digitalWrite(led_pin, LOW);
+    }
 }
 
 
@@ -503,6 +528,19 @@ byte column(byte channel) {
 
 //helpers, utilities
 
+//checks if the specified ledkey button is pressed. button indices are zero-based.
+bool is_pressed(byte index) {
+    return (ledkey_buttons & (1 << index)) > 0;
+}
+
+
+//calculates delay between steps depending on bpm
+int bpm2stepdelay(int bpm) {
+    //a minute has 60000 millis, each beat has 4 steps, so:
+    return 60000 / (bpm * 4);
+}
+
+
 void play_step(byte step) {
     byte channel;
     for (channel=0; channel<8; channel++) {
@@ -549,7 +587,7 @@ void all_stop() {
 
 
 //formats a midi value for displaying on a 4 place display
-String midi_display(char label, byte number) {
+String midi_display(char label, int number) {
     String value = String(number);
     if (value.length() > 3) {
         value = value.substring(0, 3);
