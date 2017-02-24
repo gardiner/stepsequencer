@@ -92,7 +92,7 @@ unsigned long last_channelline = 0;
 unsigned long last_step = 0;
 
 //status
-byte base_note = 0; //base note for pad mode
+byte base_note = 35; //base note for pad mode
 byte playing[16] = {NO_NOTE}; // currently playing notes in pad mode
 byte channel = 0; //currently selected channel
 byte channel_notes[8] = {35, 36, 38, 40, 42, 44, 46, 55}; // selected notes for channels in step mode
@@ -258,6 +258,10 @@ void keypad_event(KeypadEvent key){
 
 
 void enable_mode(Mode new_mode) {
+    if (mode == new_mode) {
+        return;
+    }
+
     mode = new_mode;
 
     show_all_steps();
@@ -322,7 +326,8 @@ void update_pot2(int value, int mapped_value) {
         case MODE_STEP:
             {
                 if (is_pressed(BUTTON_STEP)) {
-                    int bpm = (value > 300) ? 300 : ((value < 6) ? 6 : value);
+                    int bpm = (int)round(1.0 * value / 1024 * 300);
+                    bpm = (bpm > 300) ? 300 : ((bpm < 6) ? 6 : bpm);
                     stepdelay = bpm2stepdelay(bpm);
                     disp(midi_display('S', bpm), 4);
                 } else {
